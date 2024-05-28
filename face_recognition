@@ -13,6 +13,7 @@ import cv2
 currentname = "unknown"
 # Determine faces from encodings.pickle file model created from train_model.py
 encodingsP = "encodings.pickle"
+tolerance = 0.5  # Set your desired tolerance level here
 
 # load the known faces and embeddings along with OpenCV's Haar
 # cascade for face detection
@@ -43,24 +44,16 @@ while True:
 
     # loop over the facial embeddings
     for encoding in encodings:
-        # attempt to match each face in the input image to our known encodings
-        matches = face_recognition.compare_faces(data["encodings"], encoding)
-        name = "Unknown"  # if face is not recognized, then print Unknown
+        # compute distances to all known faces
+        distances = face_recognition.face_distance(data["encodings"], encoding)
+        min_distance = min(distances)  # find the closest match
+        name = "Unknown"  # default name if no close match is found
 
-        # check to see if we have found a match
-        if True in matches:
-            # find the indexes of all matched faces then initialize a
-            # dictionary to count the total number of times each face was matched
-            matchedIdxs = [i for (i, b) in enumerate(matches) if b]
-            counts = {}
-
-            # loop over the matched indexes and maintain a count for each recognized face
-            for i in matchedIdxs:
-                name = data["names"][i]
-                counts[name] = counts.get(name, 0) + 1
-
-            # determine the recognized face with the largest number of votes
-            name = max(counts, key=counts.get)
+        # check if the minimum distance is within the tolerance
+        if min_distance < tolerance:
+            # find the index of the closest match
+            best_match_index = distances.argmin()
+            name = data["names"][best_match_index]
 
             # If someone in your dataset is identified, print their name on the screen
             if currentname != name:
