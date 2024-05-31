@@ -1,91 +1,79 @@
-#! /usr/bin/python
-
-# import the necessary packages
-from picamera2 import Picamera2
-from imutils.video import FPS
-import face_recognition
-import imutils
-import pickle
-import time
 import cv2
+from picamera2 import Picamera2
+import pandas as pd
+from ultralytics import YOLO
+import cvzone
+import numpy as np
+from deepface import DeepFace
 
-# Initialize 'currentname' to trigger only when a new person is identified.
-currentname = "unknown"
-# Determine faces from encodings.pickle file model created from train_model.py
-encodingsP = "encodings.pickle"
-tolerance = 0.5  # Set your desired tolerance level here
-
-# load the known faces and embeddings along with OpenCV's Haar
-# cascade for face detection
-print("[INFO] loading encodings + face detector...")
-with open(encodingsP, "rb") as f:
-    data = pickle.load(f)
-
-# initialize the picamera2 and allow the camera sensor to warm up
+# Initialize Picamera2
 picam2 = Picamera2()
-config = picam2.create_still_configuration()
-picam2.configure(config)
+picam2.preview_configuration.main.size = (640, 480)
+picam2.preview_configuration.main.format = "RGB888"
+picam2.preview_configuration.align()
+picam2.configure("preview")
 picam2.start()
-time.sleep(2.0)
 
-# start the FPS counter
-fps = FPS().start()
+# Load YOLO model
+model = YOLO('yolov8n.pt')
 
-# loop over frames from the video file stream
+# Load class names
+with open("coco.txt", "r") as my_file:
+    class_list = my_file.read().split("\n")
+
+# Path to the database of known faces
+database_path = "faces_database"
+
+# Define tolerance
+tolerance = 0.9
+
+count = 0
+
 while True:
-    # grab the frame from the picamera2
-    frame = picam2.capture_array()
-    frame = imutils.resize(frame, width=500)
-    # Detect the face boxes
-    boxes = face_recognition.face_locations(frame)
-    # compute the facial embeddings for each face bounding box
-    encodings = face_recognition.face_encodings(frame, boxes)
-    names = []
-
-    # loop over the facial embeddings
-    for encoding in encodings:
-        # compute distances to all known faces
-        distances = face_recognition.face_distance(data["encodings"], encoding)
-        min_distance = min(distances)  # find the closest match
-        name = "Unknown"  # default name if no close match is found
-
-        # check if the minimum distance is within the tolerance
-        if min_distance < tolerance:
-            # find the index of the closest match
-            best_match_index = distances.argmin()
-            name = data["names"][best_match_index]
-
-            # If someone in your dataset is identified, print their name on the screen
-            if currentname != name:
-                currentname = name
-                print(currentname)
-
-        # update the list of names
-        names.append(name)
-
-    # loop over the recognized faces
-    for ((top, right, bottom, left), name) in zip(boxes, names):
-        # draw the predicted face name on the image - color is in BGR
-        cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 225), 2)
-        y = top - 15 if top - 15 > 15 else top + 15
-        cv2.putText(frame, name, (left, y), cv2.FONT_HERSHEY_SIMPLEX, .8, (0, 255, 255), 2)
-
-    # display the image to our screen
-    cv2.imshow("Facial Recognition is Running", frame)
-    key = cv2.waitKey(1) & 0xFF
-
-    # quit when 'q' key is pressed
-    if key == ord("q"):
+    im = picam2.capture_array()
+    
+    count += 1
+    if count % 3 != 0:
+        continue
+    
+    im = cv2.flip(im, -1)
+    results = model.predict(im)
+    a = results[0].boxes.data
+    px = pd.DataFrame(a).astype("float")
+    
+    for index, row in px.iterrows():
+        x1 = int(row[0])
+        y1 = int(row[1])
+        x2 = int(row[2])
+        y2 = int(row[3])
+        d = int(row[5])
+        c = class_list[d]
+        
+        # Draw rectangle and label
+        cv2.rectangle(im, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        cvzone.putTextRect(im, f'{c}', (x1, y1), 1, 1)
+        
+        # If person is detected, perform face recognition
+        if c == "person":
+            face_crop = im[y1:y2, x1:x2]
+            try:
+                results = DeepFace.find(img_path=face_crop, db_path=database_path, model_name='VGG-Face', distance_metric='cosine', enforce_detection=False)
+                if len(results) > 0:
+                    best_match = results[0].iloc[0]
+                    distance = best_match['VGG-Face_cosine']
+                    if distance < tolerance:
+                        identity = best_match['identity'].split('/')[-2]  # Get the directory name as identity
+                        cvzone.putTextRect(im, identity, (x1, y1 - 10), 1, 1)
+                    else:
+                        cvzone.putTextRect(im, "Unknown", (x1, y1 - 10), 1, 1)
+                else:
+                    cvzone.putTextRect(im, "Unknown", (x1, y1 - 10), 1, 1)
+            except Exception as e:
+                print(f"DeepFace error: {e}")
+    
+    # Display the image
+    cv2.imshow("Camera", im)
+    if cv2.waitKey(1) == ord('q'):
         break
 
-    # update the FPS counter
-    fps.update()
-
-# stop the timer and display FPS information
-fps.stop()
-print("[INFO] elapsed time: {:.2f}".format(fps.elapsed()))
-print("[INFO] approx. FPS: {:.2f}".format(fps.fps()))
-
-# do a bit of cleanup
 cv2.destroyAllWindows()
-picam2.stop()
