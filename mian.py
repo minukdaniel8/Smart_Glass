@@ -53,12 +53,12 @@ picam2.configure("preview")
 picam2.start()
 
 #custom model load
-model=YOLO('best.pt')
-my_file = open("coco1.txt", "r")
+#model=YOLO('best.pt')
+#my_file = open("coco1.txt", "r")
 
 #pretrained model load
-#model=YOLO('yolov8n.pt')
-#my_file = open("coco.txt", "r")
+model=YOLO('yolov8n.pt')
+my_file = open("coco.txt", "r")
 
 data = my_file.read()
 class_list = data.split("\n")
@@ -87,10 +87,8 @@ while True:
 
     largest_area = 0
     largest_object = None
-    
     largest_face_area = 0
     largest_face = None
-    
     object_list=[]
     
     for index,row in px.iterrows():
@@ -165,12 +163,9 @@ while True:
 
     current_time=time.time()
     if current_time - last_update_time>=3:
-        if largest_object:
-            largest_object_over_time = largest_object
-        if ultrasonic.distance:
-            distance_over_time=ultrasonic.distance
-        if largest_face:
-            largest_face_over_time = largest_face
+        largest_object_over_time = largest_object
+        distance_over_time=ultrasonic.distance
+        largest_face_over_time = largest_face
         last_update_time=current_time
     
     #print largest_object, largest_object_over_time, ultrasonic_detected
@@ -178,16 +173,21 @@ while True:
 #         x1, y1, x2, y2, c = largest_object
 #         cvzone.putTextRect(im,f'Largest object:{c}',(0,20),1,1)
         
-    if largest_object_over_time:
-        x1, y1, x2, y2, c = largest_object_over_time
+    if largest_object:
+        x1, y1, x2, y2, c = largest_object
         cvzone.putTextRect(im,f'Object detected:{c}',(0,20),1,1)
+    if not largest_object:
+        cvzone.putTextRect(im,f'No Object found',(0,20),1,1)
 
-    if distance_over_time:
-        cvzone.putTextRect(im,f'Distance :{distance_over_time}',(0,50),1,1)
+    if ultrasonic.distance:
+        d=ultrasonic.distance
+        cvzone.putTextRect(im,f'Distance :{d:.2f}m',(0,50),1,1)
     
-    if largest_face_over_time:
-        top, right, bottom, left, name = largest_face_over_time
+    if largest_face:
+        top, right, bottom, left, name = largest_face
         cvzone.putTextRect(im,f'Face recognized :{name}',(0,80),1,1)
+    if not largest_face:
+        cvzone.putTextRect(im,f'No face found',(0,80),1,1)
         
     cv2.imshow("Camera", im)
     if cv2.waitKey(1)==ord('q'):
