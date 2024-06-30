@@ -9,8 +9,26 @@ import RPi.GPIO as GPIO
 from gpiozero import DistanceSensor
 import imutils
 import face_recognition
-
 import pickle
+import socket
+import json
+
+"""
+#once reciever device ready
+#wifi network setup
+SERVER_IP = 'receiver_pi_ip_address'  # Replace with the receiver Pi's IP address
+SERVER_PORT = 5000
+
+# Create a TCP/IP socket
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+# Connect the socket to the server's port
+client_socket.connect((SERVER_IP, SERVER_PORT))
+"""
+
+#wait 3 seconds to update return values(largest_object_over_time, distance_over_time)
+TIME_RESOLUTION=3
+
 
 BUTTON_PIN=17
 GPIO.setmode(GPIO.BCM)
@@ -67,8 +85,7 @@ class_list = data.split("\n")
 
 
 
-#wait 3 seconds to update return values(largest_object_over_time, distance_over_time)
-TIME_RESOLUTION=3
+
 
 #return value initialization
 largest_object_over_time=None
@@ -78,13 +95,18 @@ largest_face_over_time=None
 
 last_update_time=time.time()
 while True:
+    #turn off the code once the button is pressed
+    if(GPIO.input(BUTTON_PIN)):
+        break
+    
     im= picam2.capture_array()
 
     results=model.predict(im)
     a=results[0].boxes.data
     px=pd.DataFrame(a).astype("float")
     
-
+    
+    #default value initialization
     largest_area = 0
     largest_object = None
     largest_face_area = 0
@@ -160,19 +182,36 @@ while True:
     
 
     
-
+    #update data to be transferred to the receiver every TIME_RESOLUTION seconds
     current_time=time.time()
-    if current_time - last_update_time>=3:
+    if current_time - last_update_time>=TIME_RESOLUTION:
         largest_object_over_time = largest_object
         distance_over_time=ultrasonic.distance
         largest_face_over_time = largest_face
         last_update_time=current_time
-    
-    #print largest_object, largest_object_over_time, ultrasonic_detected
-#     if largest_object:
-#         x1, y1, x2, y2, c = largest_object
-#         cvzone.putTextRect(im,f'Largest object:{c}',(0,20),1,1)
         
+        
+    #once reciever device ready
+    """
+        #data package to be sent to reciever device
+        # Create a dictionary of the data to be sent
+        data_to_send = {
+            "largest_object": largest_object_over_time,
+            "distance": distance_over_time,
+            "largest_face": largest_face_over_time
+        }
+        
+        # Serialize to JSON
+        json_data = json.dumps(data_to_send)
+        
+        # Send the JSON data to the receiver
+        client_socket.sendall(json_data.encode('utf-8'))
+    
+    """ 
+    
+    
+        
+    #show the detected objectface in the monitor real time
     if largest_object:
         x1, y1, x2, y2, c = largest_object
         cvzone.putTextRect(im,f'Object detected:{c}',(0,20),1,1)
@@ -190,7 +229,6 @@ while True:
         cvzone.putTextRect(im,f'No face found',(0,80),1,1)
         
     cv2.imshow("Camera", im)
-    if cv2.waitKey(1)==ord('q'):
-        break
+
 cv2.destroyAllWindows()
 
